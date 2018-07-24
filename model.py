@@ -1,72 +1,38 @@
-import torch.nn as nn
 import torch
-
-class RecurrentDropout(nn.Module):
-    """
-    Implements dropout with same mask for each time step
-    """
-    def __init__(self):
-        super().__init__()
-        
-    def forward(self, x, p=0.5):
-        """
-        Forward step. x has following dimensions: 
-            (time, samples, input_dim)
-        """
-        if not p or not self.training:
-            return x
-        
-        mask = torch.empty(1, x.size(1), x.size(2)).bernoulli_(1 - p) / (1 - p)
-        mask = mask.expand_as(x)
-        if x.is_cuda:
-            mask = mask.to('cuda')
-        return mask * x
-
-
-class EmbeddingWithDropout(nn.Embedding):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-    
-    def forward(self, inp, p=0.5):
-        if p and self.training:
-            size = (self.weight.size(0), 1)
-            mask = torch.empty(size).bernoulli_(1 - p) / (1 - p)
-            mask = mask.expand_as(self.weight)
-            if inp.is_cuda:
-                mask = mask.to('cuda')
-            dropout_weight = mask * self.weight
-        else:
-            dropout_weight = self.weight
-
-        padding_idx = self.padding_idx
-        if padding_idx is None:
-            padding_idx = -1
-        
-        x = torch.nn.functional.embedding(inp, dropout_weight, padding_idx, 
-                                          self.max_norm, self.norm_type,
-                                          self.scale_grad_by_freq, self.sparse)
-
-        return x
-
+import torch.nn as nn
 
 class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
-    def __init__(self, ntoken, ninp, nhid, nlayers):
-        super().__init__()
-
-        self.drop = nn.Dropout(.5)
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False):
+        super(RNNModel, self).__init__()
+        self.drop = nn.Dropout(dropout)
         self.encoder = nn.Embedding(ntoken, ninp)
+        if rnn_type in ['LSTM', 'GRU']:
+            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
+        else:
+            try:
+                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[rnn_type]
+            except KeyError:
+                raise ValueError( """An invalid option for `--model` was supplied,
+                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""")
+            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=nonlinearity, dropout=dropout)
         self.decoder = nn.Linear(nhid, ntoken)
-        rnns = []
-        for i in range(nlayers):
-            if i == 0:
-                rnns.append(nn.LSTM(ninp, nhid, 1))
-            else:
-                rnns.append(nn.LSTM(nhid, nhid, 1))
-        self.rnns = nn.ModuleList(rnns)
+
+        # Optionally tie weights as in:
+        # "Using the Output Embedding to Improve Language Models" (Press & Wolf 2016)
+        # https://arxiv.org/abs/1608.05859
+        # and
+        # "Tying Word Vectors and Word Classifiers: A Loss Framework for Language Modeling" (Inan et al. 2016)
+        # https://arxiv.org/abs/1611.01462
+        if tie_weights:
+            if nhid != ninp:
+                raise ValueError('When using the tied flag, nhid must be equal to emsize')
+            self.decoder.weight = self.encoder.weight
 
         self.init_weights()
+
+        self.rnn_type = rnn_type
         self.nhid = nhid
         self.nlayers = nlayers
 
@@ -78,19 +44,15 @@ class RNNModel(nn.Module):
 
     def forward(self, input, hidden):
         emb = self.drop(self.encoder(input))
-        current = emb
-        new_hidden = []
-
-        for l, rnn in enumerate(self.rnns):
-            current, new_h = rnn(current, hidden[l])
-            new_hidden.append(new_h)
-            
-        current = self.drop(current)
-        decoded = self.decoder(current.view(-1, current.size(2)))
-        return decoded.view(current.size(0), current.size(1), decoded.size(1)), new_hidden
+        output, hidden = self.rnn(emb, hidden)
+        output = self.drop(output)
+        decoded = self.decoder(output.view(output.size(0)*output.size(1), output.size(2)))
+        return decoded.view(output.size(0), output.size(1), decoded.size(1)), hidden
 
     def init_hidden(self, bsz):
-        weight = next(self.parameters()).data
-        return [(weight.new(1, bsz, self.nhid).zero_(),
-                 weight.new(1, bsz, self.nhid).zero_())
-                    for l in range(self.nlayers)]
+        weight = next(self.parameters())
+        if self.rnn_type == 'LSTM':
+            return (weight.new_zeros(self.nlayers, bsz, self.nhid),
+                    weight.new_zeros(self.nlayers, bsz, self.nhid))
+        else:
+            return weight.new_zeros(self.nlayers, bsz, self.nhid)
