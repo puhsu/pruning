@@ -26,9 +26,9 @@ parser.add_argument('--clip', type=float, default=0.25,
                     help='gradient clipping')
 parser.add_argument('--epochs', type=int, default=40,
                     help='upper epoch limit')
-parser.add_argument('--batch_size', type=int, default=20, metavar='N',
+parser.add_argument('--batch_size', type=int, default=64, metavar='N',
                     help='batch size')
-parser.add_argument('--bptt', type=int, default=35,
+parser.add_argument('--bptt', type=int, default=70,
                     help='sequence length')
 parser.add_argument('--tied', action='store_true',
                     help='tie the word embedding and softmax weights')
@@ -83,7 +83,7 @@ valid_data = batchify(corpus.valid, eval_batch_size)
 
 
 ntokens = len(corpus.dictionary)
-model = model.RNNModel(ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied).to(device)
+model = model.RNNModel(ntokens, args.emsize, args.nhid, args.nlayers).to(device)
 criterion = nn.CrossEntropyLoss()
 
 ###############################################################################
@@ -157,7 +157,7 @@ def train():
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
         optimizer.step()
 
-        avg_loss.update(loss.item())
+        avg_loss.update(float(loss.item()))
         pbar.set_postfix(loss=f'{avg_loss():05.3f}')
         
 

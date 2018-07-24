@@ -52,26 +52,20 @@ class EmbeddingWithDropout(nn.Embedding):
 class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
-    def __init__(self, ntoken, ninp, nhid, nlayers,
-                 dropouth=0.3, dropouti=0.65, dropoute=0.1, dropouto=0.5, tie_weights=False):
-        super(RNNModel, self).__init__()
+    def __init__(self, ntoken, ninp, nhid, nlayers):
+        super().__init__()
 
-        self.drop = RecurrentDropout()
-        self.encoder = EmbeddingWithDropout(ntoken, ninp)
+        self.drop = nn.Dropout(.5)
+        self.encoder = nn.Embedding(ntoken, ninp)
         self.decoder = nn.Linear(nhid, ntoken)
         rnns = []
         for i in range(nlayers):
             if i == 0:
-                rnns.append(nn.LSTM(ninp, nhid, num_layers=1))
+                rnns.append(nn.LSTM(ninp, nhid, 1))
             else:
-                rnns.append(nn.LSTM(nhid, nhid, num_layers=1))
+                rnns.append(nn.LSTM(nhid, nhid, 1))
         self.rnns = nn.ModuleList(rnns)
 
-        self.dropoute = dropoute
-        self.dropouth = dropouth
-        self.dropouti = dropouti
-        self.dropouto = dropouto
-        
         self.init_weights()
         self.nhid = nhid
         self.nlayers = nlayers
@@ -83,21 +77,17 @@ class RNNModel(nn.Module):
         self.decoder.weight.data.uniform_(-initrange, initrange)
 
     def forward(self, input, hidden):
-        emb = self.drop(self.encoder(input), p=self.dropouti)
-        output = emb
-        outputs, new_hidden = [], []
+        emb = self.drop(self.encoder(input))
+        current = emb
+        new_hidden = []
 
         for l, rnn in enumerate(self.rnns):
-            output, new_h = rnn(output, hidden[l])
+            current, new_h = rnn(current, hidden[l])
             new_hidden.append(new_h)
             
-            if l != self.nlayers - 1:
-                output = self.drop(output, p=self.dropouth)
-                outputs.append(output)
-
-        output = self.drop(output, p=self.dropouto)
-        decoded = self.decoder(output.view(-1, output.size(2)))
-        return decoded.view(output.size(0), output.size(1), decoded.size(1)), new_hidden
+        current = self.drop(current)
+        decoded = self.decoder(current.view(-1, current.size(2)))
+        return decoded.view(current.size(0), current.size(1), decoded.size(1)), new_hidden
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
