@@ -83,7 +83,7 @@ valid_data = batchify(corpus.valid, eval_batch_size)
 
 
 ntokens = len(corpus.dictionary)
-model = model.RNNModel('LSTM', ntokens, args.emsize, args.nhid, args.nlayers, dropout=0).to(device)
+model = model.RNNModel('LSTM', ntokens, args.emsize, args.emsize, args.nlayers, dropout=0).to(device)
 criterion = nn.CrossEntropyLoss()
 
 ###############################################################################
