@@ -1,7 +1,9 @@
 # My ignore
-data/aclImdb/
+data/aclImdb*
 data/models/
 lab/imdb.npz
+.vscode
+data/*.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

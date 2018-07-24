@@ -1,2 +1,7 @@
 data/lm_train.data filter=lfs diff=lfs merge=lfs -text
 data/lm_valid.data filter=lfs diff=lfs merge=lfs -text
+data/test.txt filter=lfs diff=lfs merge=lfs -text
+data/train.txt filter=lfs diff=lfs merge=lfs -text
+data/corpus/dictionary.pkl filter=lfs diff=lfs merge=lfs -text
+data/corpus/train.tr filter=lfs diff=lfs merge=lfs -text
+data/corpus/valid.tr filter=lfs diff=lfs merge=lfs -text
