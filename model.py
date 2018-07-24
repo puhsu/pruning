@@ -19,7 +19,7 @@ class RecurrentDropout(nn.Module):
         mask = torch.empty(1, x.size(1), x.size(2)).bernoulli_(1 - p) / (1 - p)
         mask = mask.expand_as(x)
         if x.is_cuda:
-            mask.to('cuda')
+            mask = mask.to('cuda')
         return mask * x
 
 
@@ -33,7 +33,7 @@ class EmbeddingWithDropout(nn.Embedding):
             mask = torch.empty(size).bernoulli_(1 - p) / (1 - p)
             mask = mask.expand_as(self.weight)
             if inp.is_cuda:
-                mask.to('cuda')
+                mask = mask.to('cuda')
             dropout_weight = mask * self.weight
         else:
             dropout_weight = self.weight
