@@ -140,7 +140,7 @@ def train():
     ntokens = len(corpus.dictionary)
     hidden = model.init_hidden(args.batch_size)
     optimizer = torch.optim.Adam(model.parameters(), lr, betas=(0.7, 0.99))
-    avg_loss = RunningAverage()
+    #avg_loss = RunningAverage()
 
     pbar = tqdm(range(0, train_data.size(0) - 1, args.bptt), ascii=True, leave=False)
     for batch, i in enumerate(pbar):
@@ -157,8 +157,8 @@ def train():
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
         optimizer.step()
 
-        avg_loss.update(float(loss.item()))
-        pbar.set_postfix(loss=f'{avg_loss():05.3f}')
+        #avg_loss.update(float(loss.item()))
+        #pbar.set_postfix(loss=f'{avg_loss():05.3f}')
         
 
 ###############################################################################
