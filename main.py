@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 import data
 import model
+import utils
 from utils import RunningAverage
 
 parser = argparse.ArgumentParser(description='PyTorch IMDB RNN/LSTM Language Model')
@@ -47,29 +48,6 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Load data
 ###############################################################################
 
-def batchify(data, bsz):
-    """
-    Starting from sequential data, batchify arranges the dataset into columns.
-    For instance, with the alphabet as the sequence and batch size 4, we'd get
-    ┌ a g m s ┐
-    │ b h n t │
-    │ c i o u │
-    │ d j p v │
-    │ e k q w │
-    └ f l r x ┘.
-    These columns are treated as independent by the model, which means that the
-    dependence of e. g. 'g' on 'f' can not be learned, but allows more efficient
-    batch processing.
-    """
-
-    # Work out how cleanly we can divide the dataset into bsz parts.
-    nbatch = data.size(0) // bsz
-    # Trim off any extra elements that wouldn't cleanly fit (remainders).
-    data = data.narrow(0, 0, nbatch * bsz)
-    # Evenly divide the data across the bsz batches.
-    data = data.view(bsz, -1).t().contiguous()
-    return data
-
 
 if os.path.exists('data/corpus'):
     corpus = data.Corpus('data', load=True)
@@ -78,8 +56,8 @@ else:
     corpus.save('data')
 
 eval_batch_size = 10
-train_data = batchify(corpus.train, args.batch_size)
-valid_data = batchify(corpus.valid, eval_batch_size)
+train_data = utils.batchify(corpus.train, args.batch_size)
+valid_data = utils.batchify(corpus.valid, eval_batch_size)
 
 
 ntokens = len(corpus.dictionary)
@@ -99,25 +77,6 @@ def repackage_hidden(h):
     else:
         return tuple(repackage_hidden(v) for v in h)
 
-
-def get_batch(source, i):
-    """
-    get_batch subdivides the source data into chunks of length args.bptt.
-    If source is equal to the example output of the batchify function, with
-    a bptt-limit of 2, we'd get the following two Variables for i = 0:
-    ┌ a g m s ┐ ┌ b h n t ┐
-    └ b h n t ┘ └ c i o u ┘
-    Note that despite the name of the function, the subdivison of data is not
-    done along the batch dimension (i.e. dimension 1), since that was handled
-    by the batchify function. The chunks are along dimension 0, corresponding
-    to the seq_len dimension in the LSTM.
-    """
-    seq_len = min(args.bptt, len(source) - 1 - i)
-    data = source[i:i+seq_len]
-    target = source[i+1:i+1+seq_len].view(-1)
-    return data.to(device), target.to(device)
-
-
 def evaluate(data_source):
     # Turn on evaluation mode which disables dropout.
     model.eval()
@@ -133,14 +92,13 @@ def evaluate(data_source):
             hidden = repackage_hidden(hidden)
     return total_loss / len(data_source)
 
-
 def train():
     # Turn on training mode which enables dropout.
     model.train()
     ntokens = len(corpus.dictionary)
     hidden = model.init_hidden(args.batch_size)
     optimizer = torch.optim.Adam(model.parameters(), lr, betas=(0.7, 0.99))
-    #avg_loss = RunningAverage()
+    avg_loss = RunningAverage()
 
     pbar = tqdm(range(0, train_data.size(0) - 1, args.bptt), ascii=True, leave=False)
     for batch, i in enumerate(pbar):
@@ -150,15 +108,15 @@ def train():
         hidden = repackage_hidden(hidden)
         model.zero_grad()
         output, hidden = model(data, hidden)
-        loss = criterion(output.view(-1, ntokens), targets)
+        loss = criterion(output.view(-1, ntokens), targets) # TODO change criterion to approximate softmax
         loss.backward()
 
         # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
         optimizer.step()
 
-        #avg_loss.update(float(loss.item()))
-        #pbar.set_postfix(loss=f'{avg_loss():05.3f}')
+        avg_loss.update(float(loss.item()))
+        pbar.set_postfix(loss=f'{avg_loss():05.3f}')
         
 
 ###############################################################################

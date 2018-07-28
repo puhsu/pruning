@@ -109,3 +109,6 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+data/itos.pkl
+data/test.npz
+data/train.npz
