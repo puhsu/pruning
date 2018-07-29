@@ -45,7 +45,7 @@ parser.add_argument('--save', type=str, default='data/models/model.pt',
 args = parser.parse_args()
 torch.manual_seed(args.seed)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(device)
+
 
 ###############################################################################
 # Load data
@@ -57,7 +57,7 @@ test_npz = np.load('data/test.npz')
 x_test, y_test = test_npz['texts'], test_npz['labels']
 
 train_ds = TextDataset(x=x_train, y=y_train)
-test_ds = TextDataset(x=x_train, y=y_train)
+test_ds = TextDataset(x=x_test, y=y_test)
 
 eval_batch_size = 10
 train_sp = TextSampler(train_ds, key=lambda i: len(x_train[i]), batch_size=args.batch_size)
@@ -98,8 +98,9 @@ def evaluate(loader):
     """Calculates loss and prediction accuracy given torch dataloader"""
     # Turn on evaluation mode which disables dropout.
     model.eval()
-    total_acc = 0.0
-    total_loss = 0.0
+    avg_loss = RunningAverage()
+    avg_acc = RunningAverage()
+
     with torch.no_grad():
         for batch in loader:
             # run model
@@ -109,14 +110,14 @@ def evaluate(loader):
 
             # calculate loss
             loss = criterion(out.view(-1), target.float())
-            total_loss += loss.item()
+            avg_loss.update(loss.item())
             
             # calculate accuracy
             pred = out.view(-1) > 0.5
             correct = pred == target.byte()
-            total_acc += torch.sum(correct).item() / len(correct)
+            avg_acc.update(torch.sum(correct).item() / len(correct))
 
-    return total_loss / len(loader), total_acc / len(loader)
+    return avg_loss(), avg_acc()
 
 def train():
     # Turn on training mode which enables dropout.
@@ -143,6 +144,8 @@ def train():
         avg_acc.update(torch.sum(correct).item() / len(correct))
 
         pbar.set_postfix(loss=f'{avg_loss():05.3f}', acc=f'{avg_acc():05.2f}')
+    
+    return avg_loss(), avg_acc()
 
 
 ###############################################################################
@@ -156,11 +159,11 @@ best_val_loss = None
 
 for epoch in range(1, args.epochs+1):
     epoch_start_time = time.time()
-    train()
+    trn_loss, trn_acc = train()
     val_loss, val_acc = evaluate(test_dl)
     print('-' * 89)
     print(f'| end of epoch {epoch:3d} | time: {time.time()-epoch_start_time:5.2f}s '
-          f'| valid loss {val_loss:05.3f} | valid acc {val_acc:04.2f}')
+          f'| train/valid loss {trn_loss:05.3f}/{val_loss:05.3f} | train/valid acc {trn_acc:04.2f}/{val_acc:04.2f}')
     print('-' * 89)
     # Save the model if the validation loss is the best we've seen so far.
     if not best_val_loss or val_loss < best_val_loss:
