@@ -45,19 +45,22 @@ parser.add_argument('--save', type=str, default='data/models/model.pt',
 args = parser.parse_args()
 torch.manual_seed(args.seed)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(device)
 
 ###############################################################################
 # Load data
 ###############################################################################
 
 train_npz = np.load('data/train.npz')
+x_train, y_train = train_npz['texts'], train_npz['labels']
 test_npz = np.load('data/test.npz')
+x_test, y_test = test_npz['texts'], test_npz['labels']
 
-train_ds = TextDataset(x=train_npz['texts'], y=train_npz['labels'])
-test_ds = TextDataset(x=test_npz['texts'], y=test_npz['labels'])
+train_ds = TextDataset(x=x_train, y=y_train)
+test_ds = TextDataset(x=x_train, y=y_train)
 
 eval_batch_size = 10
-train_sp = TextSampler(train_ds, key=lambda i: len(train_npz['texts'][0]), batch_size=args.batch_size)
+train_sp = TextSampler(train_ds, key=lambda i: len(x_train[i]), batch_size=args.batch_size)
 
 train_dl = data.DataLoader(train_ds, batch_size=args.batch_size, sampler=train_sp, collate_fn=PadCollate())
 test_dl = data.DataLoader(test_ds, batch_size=eval_batch_size, shuffle=True, collate_fn=PadCollate())
@@ -76,13 +79,14 @@ print('Loaded train and test data.')
 ntokens = len(itos)
 model = nn.Sequential(
     model.ClassifierRNN(args.bptt, ntokens, args.emsize, args.nhid),
-    model.LinearDecoder(args.nhid, 2)
-)
+    model.LinearDecoder(args.nhid, 1)
+).to(device)
+
 
 print(f'Created model with {utils.count_parameters(model)} parameters:')
 print(model)
 
-criterion = nn.BCELoss()
+criterion = nn.BCEWithLogitsLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.8, 0.99))
 
 
@@ -99,7 +103,8 @@ def evaluate(loader):
     with torch.no_grad():
         for batch in loader:
             # run model
-            inp, target = batch.to(device)
+            inp, target = batch
+            inp, target = inp.to(device), target.to(device)
             out = model(inp.t())
 
             # calculate loss
@@ -121,10 +126,11 @@ def train():
 
     pbar = tqdm(train_dl, ascii=True, leave=False)
     for batch in pbar:
-        inp, target = batch.to(device)
+        inp, target = batch
+        inp, target = inp.to(device), target.to(device)
         model.zero_grad()
         out = model(inp.t())
-        loss = criterion(output.view(-1), targets.float())
+        loss = criterion(out.view(-1), target.float())
         loss.backward()
 
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)

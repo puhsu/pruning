@@ -5,15 +5,19 @@ Downloading and processing IMDB dataset
 import argparse
 import collections
 import os
+import html
+import re
 import pickle
 import tarfile
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 import requests
 import spacy
 
 import utils
+
 
 class Tokenizer():
     def __init__(self, lang='en'):
@@ -71,7 +75,7 @@ class Tokenizer():
     @staticmethod
     def proc_all(ss, lang):
         tok = Tokenizer(lang)
-        return [tok.proc_text(s) for s in ss]
+        return np.array([tok.proc_text(s) for s in ss])
 
     @staticmethod
     def proc_all_mp(ss, lang='en'):
@@ -162,5 +166,4 @@ def classifier_data():
     np.savez('data/test.npz', texts=val_ids, labels=val_labels)
 
 
-def language_model_data():
-    pass
+classifier_data()
