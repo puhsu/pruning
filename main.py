@@ -2,17 +2,19 @@ import argparse
 import time
 import math
 import os
+import pickle
 
 import torch
+import numpy as np
 import torch.nn as nn
+import torch.utils.data as data
 from tqdm import tqdm
 
-import data
 import model
 import utils
-from utils import RunningAverage
+from utils import TextDataset, TextSampler, PadCollate, RunningAverage
 
-parser = argparse.ArgumentParser(description='PyTorch IMDB RNN/LSTM Language Model')
+parser = argparse.ArgumentParser(description='PyTorch IMDB LSTM classifier')
 parser.add_argument('--emsize', type=int, default=300,
                     help='size of word embeddings')
 parser.add_argument('--nhid', type=int, default=128,
@@ -37,7 +39,7 @@ parser.add_argument('--seed', type=int, default=42,
                     help='random seed')
 parser.add_argument('--log-interval', type=int, default=200, metavar='N',
                     help='report interval')
-parser.add_argument('--save', type=str, default='model.pt',
+parser.add_argument('--save', type=str, default='data/models/model.pt',
                     help='path to save the final model')
 
 args = parser.parse_args()
@@ -48,76 +50,94 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Load data
 ###############################################################################
 
+train_npz = np.load('data/train.npz')
+test_npz = np.load('data/test.npz')
 
-if os.path.exists('data/corpus'):
-    corpus = data.Corpus('data', load=True)
-else:
-    corpus = data.Corpus('data')
-    corpus.save('data')
+train_ds = TextDataset(x=train_npz['texts'], y=train_npz['labels'])
+test_ds = TextDataset(x=test_npz['texts'], y=test_npz['labels'])
 
 eval_batch_size = 10
-train_data = utils.batchify(corpus.train, args.batch_size)
-valid_data = utils.batchify(corpus.valid, eval_batch_size)
+train_sp = TextSampler(train_ds, key=lambda i: len(train_npz['texts'][0]), batch_size=args.batch_size)
+
+train_dl = data.DataLoader(train_ds, batch_size=args.batch_size, sampler=train_sp, collate_fn=PadCollate())
+test_dl = data.DataLoader(test_ds, batch_size=eval_batch_size, shuffle=True, collate_fn=PadCollate())
+
+with open('data/itos.pkl', 'rb') as f:
+    itos = pickle.load(f)
+
+print('Loaded train and test data.')
 
 
-ntokens = len(corpus.dictionary)
-model = model.RNNModel('LSTM', ntokens, args.emsize, args.emsize, args.nlayers, dropout=0).to(device)
-criterion = nn.CrossEntropyLoss()
+###############################################################################
+# Create model
+###############################################################################
+
+
+ntokens = len(itos)
+model = nn.Sequential(
+    model.ClassifierRNN(args.bptt, ntokens, args.emsize, args.nhid),
+    model.LinearDecoder(args.nhid, 2)
+)
+
+print(f'Created model with {utils.count_parameters(model)} parameters:')
+print(model)
+
+criterion = nn.BCELoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.8, 0.99))
+
 
 ###############################################################################
 # Training code
 ###############################################################################
 
-def repackage_hidden(h):
-    """
-    Wraps hidden states in new Tensors, to detach them from their history.
-    """
-    if isinstance(h, torch.Tensor):
-        return h.detach()
-    else:
-        return tuple(repackage_hidden(v) for v in h)
-
-def evaluate(data_source):
+def evaluate(loader):
+    """Calculates loss and prediction accuracy given torch dataloader"""
     # Turn on evaluation mode which disables dropout.
     model.eval()
-    total_loss = 0.
-    ntokens = len(corpus.dictionary)
-    hidden = model.init_hidden(eval_batch_size)
+    total_acc = 0.0
+    total_loss = 0.0
     with torch.no_grad():
-        for i in range(0, data_source.size(0) - 1, args.bptt):
-            data, targets = get_batch(data_source, i)
-            output, hidden = model(data, hidden)
-            output_flat = output.view(-1, ntokens)
-            total_loss += len(data) * criterion(output_flat, targets).item()
-            hidden = repackage_hidden(hidden)
-    return total_loss / len(data_source)
+        for batch in loader:
+            # run model
+            inp, target = batch.to(device)
+            out = model(inp.t())
+
+            # calculate loss
+            loss = criterion(out.view(-1), target.float())
+            total_loss += loss.item()
+            
+            # calculate accuracy
+            pred = out.view(-1) > 0.5
+            correct = pred == target.byte()
+            total_acc += torch.sum(correct).item() / len(correct)
+
+    return total_loss / len(loader), total_acc / len(loader)
 
 def train():
     # Turn on training mode which enables dropout.
     model.train()
-    ntokens = len(corpus.dictionary)
-    hidden = model.init_hidden(args.batch_size)
-    optimizer = torch.optim.Adam(model.parameters(), lr, betas=(0.7, 0.99))
     avg_loss = RunningAverage()
+    avg_acc = RunningAverage()
 
-    pbar = tqdm(range(0, train_data.size(0) - 1, args.bptt), ascii=True, leave=False)
-    for batch, i in enumerate(pbar):
-        data, targets = get_batch(train_data, i)
-        # Starting each batch, we detach the hidden state from how it was previously produced.
-        # If we didn't, the model would try backpropagating all the way to start of the dataset.
-        hidden = repackage_hidden(hidden)
+    pbar = tqdm(train_dl, ascii=True, leave=False)
+    for batch in pbar:
+        inp, target = batch.to(device)
         model.zero_grad()
-        output, hidden = model(data, hidden)
-        loss = criterion(output.view(-1, ntokens), targets) # TODO change criterion to approximate softmax
+        out = model(inp.t())
+        loss = criterion(output.view(-1), targets.float())
         loss.backward()
 
-        # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
         optimizer.step()
 
-        avg_loss.update(float(loss.item()))
-        pbar.set_postfix(loss=f'{avg_loss():05.3f}')
-        
+        # upgrade stats
+        avg_loss.update(loss.item())
+        pred = out.view(-1) > 0.5
+        correct = pred == target.byte()
+        avg_acc.update(torch.sum(correct).item() / len(correct))
+
+        pbar.set_postfix(loss=f'{avg_loss():05.3f}', acc=f'{avg_acc():05.2f}')
+
 
 ###############################################################################
 # Actual training
@@ -127,15 +147,14 @@ def train():
 lr = args.lr
 best_val_loss = None
 
-# At any point you can hit Ctrl + C to break out of training early.
+
 for epoch in range(1, args.epochs+1):
     epoch_start_time = time.time()
     train()
-    val_loss = evaluate(val_data)
+    val_loss, val_acc = evaluate(test_dl)
     print('-' * 89)
-    print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | '
-            'valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
-                                        val_loss, math.exp(val_loss)))
+    print(f'| end of epoch {epoch:3d} | time: {time.time()-epoch_start_time:5.2f}s '
+          f'| valid loss {val_loss:05.3f} | valid acc {val_acc:04.2f}')
     print('-' * 89)
     # Save the model if the validation loss is the best we've seen so far.
     if not best_val_loss or val_loss < best_val_loss:
@@ -145,17 +164,3 @@ for epoch in range(1, args.epochs+1):
     else:
         # Anneal the learning rate if no improvement has been seen in the validation dataset.
         lr /= 4.0
-
-# Load the best saved model.
-with open(args.save, 'rb') as f:
-    model = torch.load(f)
-    # after load the rnn params are not a continuous chunk of memory
-    # this makes them a continuous chunk, and will speed up forward pass
-    model.rnn.flatten_parameters()
-
-# Run on test data.
-test_loss = evaluate(valid_data)
-print('=' * 89)
-print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
-    test_loss, math.exp(test_loss)))
-print('=' * 89)
