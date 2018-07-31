@@ -4,13 +4,13 @@ Downloading and processing IMDB dataset
 
 import argparse
 import collections
-import os
 import html
-import re
+import os
 import pickle
+import re
 import tarfile
-from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
 
 import numpy as np
 import requests

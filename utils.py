@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import torch.utils.data
 
+
 def partition(a, sz):
     return [a[i:i+sz] for i in range(0, len(a), sz)]
 
@@ -17,6 +18,7 @@ def partition_by_cores(a):
 ###################################################################################
 ##  Classiffication
 ###################################################################################
+
 
 class TextDataset(torch.utils.data.Dataset):
     # TODO transfer functions from `prepare.py` to this class
@@ -76,11 +78,13 @@ class PadCollate: # TODO more general implementation
         dl = DataLoader(ds, ..., collate_fn=PadCollate(pad_idx=0))
     """
 
-    def __init__(self, pad_idx=1):
+    def __init__(self, pad_idx=1, max_len=None):
         self.pad_idx = pad_idx
+        self.max_len = max_len
 
     def pad_sequence(self, seq, max_len):
         res = np.full(max_len, self.pad_idx)
+        seq = seq[:max_len]
         res[-len(seq):] = seq
         return torch.tensor(res)
 
@@ -95,7 +99,10 @@ class PadCollate: # TODO more general implementation
         """
 
         # find longest sequence and pad according to it length
-        max_len = max(map(lambda x: len(x[0]), batch))
+        max_len = self.max_len
+        if max_len is None:
+            max_len = max(map(lambda x: len(x[0]), batch))
+
         xs = torch.stack(tuple(self.pad_sequence(x, max_len) for x, y in batch))
         ys = torch.LongTensor(tuple(y for x, y in batch))
         return xs, ys

@@ -1,18 +1,19 @@
 import argparse
-import time
 import math
 import os
 import pickle
+import time
 
-import torch
 import numpy as np
+import torch
 import torch.nn as nn
 import torch.utils.data as data
 from tqdm import tqdm
 
 import model
 import utils
-from utils import TextDataset, TextSampler, PadCollate, RunningAverage
+from utils import PadCollate, RunningAverage, TextDataset, TextSampler
+
 
 parser = argparse.ArgumentParser(description='PyTorch IMDB LSTM classifier')
 parser.add_argument('--emsize', type=int, default=300,
@@ -23,11 +24,9 @@ parser.add_argument('--nlayers', type=int, default=1,
                     help='number of layers')
 parser.add_argument('--lr', type=float, default=1e-3,
                     help='initial learning rate')
-parser.add_argument('--dropout', type=float, default=0,
-                    help='dropout applied to layers (0 = no dropout)')
 parser.add_argument('--clip', type=float, default=0.25,
                     help='gradient clipping')
-parser.add_argument('--epochs', type=int, default=40,
+parser.add_argument('--epochs', type=int, default=5,
                     help='upper epoch limit')
 parser.add_argument('--batch_size', type=int, default=64, metavar='N',
                     help='batch size')
@@ -62,8 +61,8 @@ test_ds = TextDataset(x=x_test, y=y_test)
 eval_batch_size = 10
 train_sp = TextSampler(train_ds, key=lambda i: len(x_train[i]), batch_size=args.batch_size)
 
-train_dl = data.DataLoader(train_ds, batch_size=args.batch_size, sampler=train_sp, collate_fn=PadCollate())
-test_dl = data.DataLoader(test_ds, batch_size=eval_batch_size, shuffle=True, collate_fn=PadCollate())
+train_dl = data.DataLoader(train_ds, batch_size=args.batch_size, sampler=train_sp, collate_fn=PadCollate(max_len=200))
+test_dl = data.DataLoader(test_ds, batch_size=eval_batch_size, shuffle=True, collate_fn=PadCollate(max_len=200))
 
 with open('data/itos.pkl', 'rb') as f:
     itos = pickle.load(f)
@@ -77,17 +76,17 @@ print('Loaded train and test data.')
 
 
 ntokens = len(itos)
-model = nn.Sequential(
-    model.ClassifierRNN(args.bptt, ntokens, args.emsize, args.nhid),
+md = nn.Sequential(
+    model.EncoderRNN(ntokens, args.emsize, args.nhid),
     model.LinearDecoder(args.nhid, 1)
 ).to(device)
 
 
-print(f'Created model with {utils.count_parameters(model)} parameters:')
-print(model)
+print(f'Created model with {utils.count_parameters(md)} parameters:')
+print(md)
 
 criterion = nn.BCEWithLogitsLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.8, 0.99))
+optimizer = torch.optim.Adam(md.parameters(), lr=args.lr, betas=(0.8, 0.99))
 
 
 ###############################################################################
@@ -97,16 +96,18 @@ optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.8, 0.99))
 def evaluate(loader):
     """Calculates loss and prediction accuracy given torch dataloader"""
     # Turn on evaluation mode which disables dropout.
-    model.eval()
+    md.eval()
+    hid = md[0].init_hidden(eval_batch_size)
     avg_loss = RunningAverage()
     avg_acc = RunningAverage()
 
     with torch.no_grad():
         for batch in loader:
+            hid = model.repackage_hidden(hid)
             # run model
             inp, target = batch
             inp, target = inp.to(device), target.to(device)
-            out = model(inp.t())
+            out, hid = md(inp.t(), hid)
 
             # calculate loss
             loss = criterion(out.view(-1), target.float())
@@ -121,20 +122,22 @@ def evaluate(loader):
 
 def train():
     # Turn on training mode which enables dropout.
-    model.train()
+    md.train()
+    hid = md[0].init_hidden(args.batch_size)
     avg_loss = RunningAverage()
     avg_acc = RunningAverage()
 
     pbar = tqdm(train_dl, ascii=True, leave=False)
     for batch in pbar:
+        hid = model.repackage_hidden(hid)
         inp, target = batch
         inp, target = inp.to(device), target.to(device)
-        model.zero_grad()
-        out = model(inp.t())
+        md.zero_grad()
+        out = md((inp.t(), hid))
         loss = criterion(out.view(-1), target.float())
         loss.backward()
 
-        torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
+        torch.nn.utils.clip_grad_norm_(md.parameters(), args.clip)
         optimizer.step()
 
         # upgrade stats
@@ -161,14 +164,14 @@ for epoch in range(1, args.epochs+1):
     epoch_start_time = time.time()
     trn_loss, trn_acc = train()
     val_loss, val_acc = evaluate(test_dl)
-    print('-' * 89)
+    print('-' * 100)
     print(f'| end of epoch {epoch:3d} | time: {time.time()-epoch_start_time:5.2f}s '
           f'| train/valid loss {trn_loss:05.3f}/{val_loss:05.3f} | train/valid acc {trn_acc:04.2f}/{val_acc:04.2f}')
-    print('-' * 89)
+    print('-' * 100)
     # Save the model if the validation loss is the best we've seen so far.
     if not best_val_loss or val_loss < best_val_loss:
         with open(args.save, 'wb') as f:
-            torch.save(model, f)
+            torch.save(md, f)
         best_val_loss = val_loss
     else:
         # Anneal the learning rate if no improvement has been seen in the validation dataset.
