@@ -8,7 +8,7 @@ class EncoderRNN(nn.Module):
     def __init__(self, ntoken, ninp, nhid, padding_idx=1):
         super().__init__()
         self.encoder = nn.Embedding(ntoken, ninp, padding_idx=padding_idx)
-        self.rnn = nn.LSTM(ninp, nhid)
+        self.rnn = nn.LSTM(ninp, nhid, dropout=0.5)
 
         self.init_weights()
         

@@ -1,10 +1,18 @@
 import html
 import os
 import re
+import random
+import pickle
+import tarfile
+import collections
 from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
+
 
 import numpy as np
 import torch
+import spacy
+import requests
 import torch.utils.data
 
 
@@ -15,22 +23,175 @@ def partition_by_cores(a):
     return partition(a, len(a) // os.cpu_count() + 1)
 
 
+class Tokenizer():
+    def __init__(self, lang='en'):
+        self.re_br = re.compile(r'<\s*br\s*/?>', re.IGNORECASE)
+        self.re_rep = re.compile(r'(\S)(\1{3,})')
+        self.re_word_rep = re.compile(r'(\b\w+\W+)(\1{3,})')
+        self.re_spaces = re.compile(r'  +')
+
+        self.tok = spacy.load(lang)
+        for w in '<eos>', '<bos>', '<unk>':
+            self.tok.tokenizer.add_special_case(w, [{spacy.symbols.ORTH: w}])
+
+    def sub_br(self, x): 
+        return self.re_br.sub("\n", x)
+
+    def spacy_tok(self,x):
+        return [t.text for t in self.tok.tokenizer(self.sub_br(x))]
+
+    def fixup(self, x):
+        x = x.replace('#39;', "'").replace('amp;', '&').replace('#146;', "'").replace(
+            'nbsp;', ' ').replace('#36;', '$').replace('\\n', "\n").replace('quot;', "'").replace(
+            '<br />', "\n").replace('\\"', '"').replace('<unk>','u_n').replace(' @.@ ','.').replace(
+            ' @-@ ','-').replace('\\', ' \\ ')
+        return self.re_spaces.sub(' ', html.unescape(x))
+
+    @staticmethod
+    def replace_rep(m):
+        TK_REP = 'tk_rep'
+        c, cc = m.groups()
+        return f' {TK_REP} {len(cc)+1} {c} '
+
+    @staticmethod
+    def replace_wrep(m):
+        TK_WREP = 'tk_wrep'
+        c, cc = m.groups()
+        return f' {TK_WREP} {len(cc.split())+1} {c} '
+
+    @staticmethod
+    def do_caps(ss):
+        TOK_UP = ' t_up '
+        res = []
+        for s in re.findall(r'\w+|\W+', ss):
+            res += ([TOK_UP,s.lower()] if (s.isupper() and (len(s)>2)) else [s.lower()])
+        return ''.join(res)
+
+    def proc_text(self, s):
+        s = self.fixup(s)
+        s = self.re_rep.sub(Tokenizer.replace_rep, s)
+        s = self.re_word_rep.sub(Tokenizer.replace_wrep, s)
+        s = Tokenizer.do_caps(s)
+        s = re.sub(r'([/#])', r' \1 ', s)
+        s = re.sub(' {2,}', ' ', s)
+        return self.spacy_tok(s)
+
+    @staticmethod
+    def proc_all(ss, lang):
+        tok = Tokenizer(lang)
+        return [tok.proc_text(s) for s in ss]
+
+    @staticmethod
+    def proc_all_mp(ss, lang='en'):
+        with ProcessPoolExecutor(os.cpu_count()) as e:
+            return sum(e.map(Tokenizer.proc_all, ss, [lang]*len(ss)), [])
+
+
 ###################################################################################
 ##  Classiffication
 ###################################################################################
 
 
 class TextDataset(torch.utils.data.Dataset):
-    # TODO transfer functions from `prepare.py` to this class
-    def __init__(self, x, y, load=None):
-        self.x = x
-        self.y = y
+    classes = ['neg', 'pos', 'unsup']
+    url = 'http://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz'
+
+    def __init__(self, *,  train, load, save_path=Path('data'),
+                 max_vocab=60000, min_freq=2, seed=42):
+        """Initialize dataset for text classification"""
+        self.save_path = save_path
+        self.max_vocab = max_vocab
+        self.min_freq = min_freq
+
+        if load:
+            data_path = save_path/'dataset'/'train.pkl' if train else save_path/'dataset'/'valid.pkl'
+            with open(data_path, 'rb') as f:
+                data = pickle.load(f)
+                self.texts, self.labels = zip(*data)
+            print('Loaded dataset of length:', len(self.texts))
+            print(collections.Counter(self.labels))
+            return
+
+        random.seed(seed)
+        self._download_ds()
+        train_path = save_path/'aclImdb'/'train'
+        valid_path = save_path/'aclImdb'/'test'
+        # extract texts from files
+        print('Extracting texts')
+        train_texts, train_labels = self._get_texts(train_path)
+        valid_texts, valid_labels = self._get_texts(valid_path)
+        # tokenize texts
+        print('Tokenizing train texts')
+        train_texts = Tokenizer().proc_all_mp(partition_by_cores(train_texts))
+        print('Tokenizing validation texts')
+        valid_texts = Tokenizer().proc_all_mp(partition_by_cores(valid_texts))
+
+        # numericalize tokens
+        print('Numericalizing tokens')
+        itos = self._generate_itos(train_texts + valid_texts)
+        stoi = collections.defaultdict(lambda: 0, {v: k for k, v in enumerate(itos)})
+        # filter out unsup
+        print('Deleting unsup labels')
+        train_data = [(list(map(lambda t: stoi[t], text)), label) for text, label in zip(train_texts, train_labels) if label != 2]
+        valid_data = [(list(map(lambda t: stoi[t], text)), label) for text, label in zip(valid_texts, valid_labels) if label != 2]
+        self.texts, self.labels = map(list, zip(*train_data)) if train else map(list, zip(*valid_data))
+
+        dataset_path = save_path/'dataset'
+        print('Saving dataset to', dataset_path)
+        if not dataset_path.exists():
+            os.mkdir(dataset_path)
+        with open(dataset_path/'train.pkl', 'wb') as f:
+            pickle.dump(train_data, f)
+        with open(dataset_path/'valid.pkl', 'wb') as f:
+            pickle.dump(valid_data, f)
+        with open(dataset_path/'itos.pkl', 'wb') as f:
+            pickle.dump(itos, f)
+
+
+    def _generate_itos(self, texts):
+        # get all texts in one list
+        freq = collections.Counter(t for text in texts for t in text)
+        print(f'Total number of tokens: {len(freq)}')
+        print('Top 10 tokens:')
+        print(freq.most_common(10))
+
+        itos = [t for t, c in freq.most_common(self.max_vocab) if c > self.min_freq]
+        itos.insert(0, '_pad_')
+        itos.insert(0, '_unk_')
+        print('Generated itos array of length', len(itos))
+        return itos
+
+    def _download_ds(self):
+        archive = self.save_path/'aclImdb_v1.tar.gz'
+        if not archive.exists():
+            print('Downloading')
+            with open(archive, 'wb') as f:
+                r = requests.get(self.url)
+                f.write(r.content)
+
+        if not (self.save_path/'aclImdb').exists():
+            print('Extracting archive')
+            with tarfile.open(name=archive, mode='r:gz') as tar:
+                tar.extractall(path=self.save_path)
+
+    def _get_texts(self, path):
+        texts, labels = [], []
+        # traverse directory & read all files
+        for i, cl in enumerate(self.classes):
+            for fname in (path/cl).glob('*.txt'):
+                texts.append(fname.open('r').read())
+                labels.append(i)
+
+        combined = list(zip(texts, labels))
+        random.shuffle(combined)
+        texts[:], labels[:] = zip(*combined)
+        return texts, labels
 
     def __len__(self):
-        return len(self.x)
+        return len(self.texts)
 
     def __getitem__(self, i):
-        return self.x[i], self.y[i]
+        return self.texts[i], self.labels[i]
 
 
 class TextSampler(torch.utils.data.Sampler):
@@ -83,7 +244,7 @@ class PadCollate: # TODO more general implementation
         self.max_len = max_len
 
     def pad_sequence(self, seq, max_len):
-        res = np.full(max_len, self.pad_idx)
+        res = [self.pad_idx] * max_len
         seq = seq[:max_len]
         res[-len(seq):] = seq
         return torch.tensor(res)

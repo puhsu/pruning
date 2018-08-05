@@ -16,6 +16,7 @@ from utils import PadCollate, RunningAverage, TextDataset, TextSampler
 
 
 parser = argparse.ArgumentParser(description='PyTorch IMDB LSTM classifier')
+parser.add_argument('--load', action='store_true', help='Load dataset from disk')
 parser.add_argument('--emsize', type=int, default=300,
                     help='size of word embeddings')
 parser.add_argument('--nhid', type=int, default=128,
@@ -50,21 +51,14 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Load data
 ###############################################################################
 
-train_npz = np.load('data/train.npz')
-x_train, y_train = train_npz['texts'], train_npz['labels']
-test_npz = np.load('data/test.npz')
-x_test, y_test = test_npz['texts'], test_npz['labels']
 
-train_ds = TextDataset(x=x_train, y=y_train)
-test_ds = TextDataset(x=x_test, y=y_test)
+train_ds = TextDataset(load=args.load, train=True)
+test_ds = TextDataset(load=args.load, train=False)
 
-eval_batch_size = 10
-train_sp = TextSampler(train_ds, key=lambda i: len(x_train[i]), batch_size=args.batch_size)
+train_dl = data.DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, collate_fn=PadCollate(max_len=200))
+test_dl = data.DataLoader(test_ds, batch_size=args.batch_size, shuffle=True, collate_fn=PadCollate(max_len=200))
 
-train_dl = data.DataLoader(train_ds, batch_size=args.batch_size, sampler=train_sp, collate_fn=PadCollate(max_len=200))
-test_dl = data.DataLoader(test_ds, batch_size=eval_batch_size, shuffle=True, collate_fn=PadCollate(max_len=200))
-
-with open('data/itos.pkl', 'rb') as f:
+with open('data/dataset/itos.pkl', 'rb') as f:
     itos = pickle.load(f)
 
 print('Loaded train and test data.')
@@ -75,19 +69,35 @@ print('Loaded train and test data.')
 ###############################################################################
 
 
+class LSTMClassifier(nn.Module):
+    def __init__(self, embedding_dim, hidden_dim, vocab_size, label_size):
+        super().__init__()
+        self.hidden_dim = hidden_dim
+
+        self.word_embeddings = nn.Embedding(vocab_size, embedding_dim, padding_idx=1)
+        self.rnn = nn.LSTM(embedding_dim, hidden_dim)
+        self.hidden2label = nn.Linear(hidden_dim, label_size)
+    
+    def forward(self, sentences):
+        embedding = self.word_embeddings(sentences)
+        out, hidden = self.rnn(embedding)
+        res = self.hidden2label(out[-1])
+        return torch.sigmoid(res)
+
 ntokens = len(itos)
-md = nn.Sequential(
-    model.EncoderRNN(ntokens, args.emsize, args.nhid),
-    model.LinearDecoder(args.nhid, 1)
-).to(device)
+# md = nn.Sequential(
+#     model.EncoderRNN(ntokens, args.emsize, args.nhid),
+#     model.LinearDecoder(args.nhid, 1)
+# ).to(device)
+
+md = LSTMClassifier(args.emsize, args.nhid, ntokens, 1).to(device)
 
 
 print(f'Created model with {utils.count_parameters(md)} parameters:')
 print(md)
 
-criterion = nn.BCEWithLogitsLoss()
+criterion = nn.BCELoss(reduction='sum')
 optimizer = torch.optim.Adam(md.parameters(), lr=args.lr, betas=(0.8, 0.99))
-
 
 ###############################################################################
 # Training code
@@ -97,17 +107,16 @@ def evaluate(loader):
     """Calculates loss and prediction accuracy given torch dataloader"""
     # Turn on evaluation mode which disables dropout.
     md.eval()
-    hid = md[0].init_hidden(eval_batch_size)
     avg_loss = RunningAverage()
     avg_acc = RunningAverage()
 
     with torch.no_grad():
-        for batch in loader:
-            hid = model.repackage_hidden(hid)
+        pbar = tqdm(loader, ascii=True, leave=False)
+        for batch in pbar:
             # run model
             inp, target = batch
-            inp, target = inp.to(device), target.to(device)
-            out, hid = md(inp.t(), hid)
+            inp, target = inp.to(device), target.to(device)            
+            out = md(inp.t())
 
             # calculate loss
             loss = criterion(out.view(-1), target.float())
@@ -118,22 +127,24 @@ def evaluate(loader):
             correct = pred == target.byte()
             avg_acc.update(torch.sum(correct).item() / len(correct))
 
+            pbar.set_postfix(loss=f'{avg_loss():05.3f}', acc=f'{avg_acc():05.2f}')
+
+
     return avg_loss(), avg_acc()
 
 def train():
     # Turn on training mode which enables dropout.
     md.train()
-    hid = md[0].init_hidden(args.batch_size)
     avg_loss = RunningAverage()
     avg_acc = RunningAverage()
 
     pbar = tqdm(train_dl, ascii=True, leave=False)
     for batch in pbar:
-        hid = model.repackage_hidden(hid)
         inp, target = batch
         inp, target = inp.to(device), target.to(device)
+        # run model
         md.zero_grad()
-        out = md((inp.t(), hid))
+        out = md(inp.t())
         loss = criterion(out.view(-1), target.float())
         loss.backward()
 
