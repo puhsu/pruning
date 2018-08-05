@@ -16,7 +16,8 @@ from utils import PadCollate, RunningAverage, TextDataset, TextSampler
 
 
 parser = argparse.ArgumentParser(description='PyTorch IMDB LSTM classifier')
-parser.add_argument('--load', action='store_true', help='Load dataset from disk')
+parser.add_argument('--load', action='store_true', 
+                    help='Load dataset from disk')
 parser.add_argument('--emsize', type=int, default=300,
                     help='size of word embeddings')
 parser.add_argument('--nhid', type=int, default=128,
@@ -53,10 +54,12 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 train_ds = TextDataset(load=args.load, train=True)
-test_ds = TextDataset(load=args.load, train=False)
+test_ds = TextDataset(load=True, train=False)
 
-train_dl = data.DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, collate_fn=PadCollate(max_len=200))
-test_dl = data.DataLoader(test_ds, batch_size=args.batch_size, shuffle=True, collate_fn=PadCollate(max_len=200))
+
+train_sp = TextSampler(train_ds, key=lambda i: len(train_ds.texts[i]), batch_size=args.batch_size)
+train_dl = data.DataLoader(train_ds, batch_size=args.batch_size, sampler=train_sp, collate_fn=PadCollate())
+test_dl = data.DataLoader(test_ds, batch_size=args.batch_size, shuffle=True, collate_fn=PadCollate())
 
 with open('data/dataset/itos.pkl', 'rb') as f:
     itos = pickle.load(f)
@@ -69,34 +72,16 @@ print('Loaded train and test data.')
 ###############################################################################
 
 
-class LSTMClassifier(nn.Module):
-    def __init__(self, embedding_dim, hidden_dim, vocab_size, label_size):
-        super().__init__()
-        self.hidden_dim = hidden_dim
-
-        self.word_embeddings = nn.Embedding(vocab_size, embedding_dim, padding_idx=1)
-        self.rnn = nn.LSTM(embedding_dim, hidden_dim)
-        self.hidden2label = nn.Linear(hidden_dim, label_size)
-    
-    def forward(self, sentences):
-        embedding = self.word_embeddings(sentences)
-        out, hidden = self.rnn(embedding)
-        res = self.hidden2label(out[-1])
-        return torch.sigmoid(res)
-
 ntokens = len(itos)
-# md = nn.Sequential(
-#     model.EncoderRNN(ntokens, args.emsize, args.nhid),
-#     model.LinearDecoder(args.nhid, 1)
-# ).to(device)
-
-md = LSTMClassifier(args.emsize, args.nhid, ntokens, 1).to(device)
-
+md = nn.Sequential(
+    model.ClassifierRNN(args.bptt, ntokens, args.emsize, args.nhid),
+    model.LinearDecoder(args.nhid, 1)
+).to(device)
 
 print(f'Created model with {utils.count_parameters(md)} parameters:')
 print(md)
 
-criterion = nn.BCELoss(reduction='sum')
+criterion = nn.BCEWithLogitsLoss(reduction='sum')
 optimizer = torch.optim.Adam(md.parameters(), lr=args.lr, betas=(0.8, 0.99))
 
 ###############################################################################
