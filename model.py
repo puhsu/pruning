@@ -1,8 +1,9 @@
+
 import torch
 import torch.nn as nn
 
 ###################################################################################
-##  RNN models
+#  RNN models
 ###################################################################################
 
 
@@ -35,12 +36,12 @@ class EncoderRNN(nn.Module):
         weight = next(self.parameters())
         return (weight.new_zeros(1, bsz, self.nhid),
                 weight.new_zeros(1, bsz, self.nhid))
-    
+
+
 class ClassifierRNN(EncoderRNN):
     """Wrapper over encoder RNN. Which loops through entire sequence in chunks
     of size <= bptt
     """
-    # TODO implement thing with average pooling
     def __init__(self, bptt, *args, **kwargs):
         self.bptt = bptt
         super().__init__(*args, **kwargs)
@@ -73,7 +74,7 @@ class LinearDecoder(nn.Module):
 
 
 ###################################################################################
-##  Internals
+#  Internals
 ###################################################################################
 
 def repackage_hidden(h):
@@ -83,29 +84,31 @@ def repackage_hidden(h):
     else:
         return tuple(repackage_hidden(v) for v in h)
 
+
 class RecurrentDropout(nn.Module):
     """Implements dropout with same mask for each time step."""
     def __init__(self):
         super().__init__()
-        
+
     def forward(self, x, p=0.5):
         """
-        Forward step. x has following dimensions: 
+        Forward step. x has following dimensions:
             (time, samples, input_dim)
         """
         if not p or not self.training:
             return x
-        
+
         mask = torch.empty(1, x.size(1), x.size(2)).bernoulli_(1 - p) / (1 - p)
         mask = mask.expand_as(x)
         if x.is_cuda:
             mask = mask.to('cuda')
         return mask * x
 
+
 class EmbeddingWithDropout(nn.Embedding):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-    
+
     def forward(self, inp, p=0.5):
         if p and self.training:
             size = (self.weight.size(0), 1)
@@ -120,8 +123,8 @@ class EmbeddingWithDropout(nn.Embedding):
         padding_idx = self.padding_idx
         if padding_idx is None:
             padding_idx = -1
-        
-        x = nn.functional.embedding(inp, dropout_weight, padding_idx, 
+
+        x = nn.functional.embedding(inp, dropout_weight, padding_idx,
                                     self.max_norm, self.norm_type,
                                     self.scale_grad_by_freq, self.sparse)
         return x

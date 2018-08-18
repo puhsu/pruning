@@ -14,15 +14,19 @@ import torch
 import spacy
 import requests
 import torch.utils.data
+from ruamel.yaml import YAML
 
 
 def partition(a, sz):
     return [a[i:i+sz] for i in range(0, len(a), sz)]
 
+
 def partition_by_cores(a):
     return partition(a, len(a) // os.cpu_count() + 1)
 
 
+# TODO refactor tokenizer (too many fixup, sub... functions which logically do same things)
+# NOTE Maybe make this a function
 class Tokenizer():
     def __init__(self, lang='en'):
         self.re_br = re.compile(r'<\s*br\s*/?>', re.IGNORECASE)
@@ -34,17 +38,17 @@ class Tokenizer():
         for w in '<eos>', '<bos>', '<unk>':
             self.tok.tokenizer.add_special_case(w, [{spacy.symbols.ORTH: w}])
 
-    def sub_br(self, x): 
+    def sub_br(self, x):
         return self.re_br.sub("\n", x)
 
-    def spacy_tok(self,x):
+    def spacy_tok(self, x):
         return [t.text for t in self.tok.tokenizer(self.sub_br(x))]
 
     def fixup(self, x):
         x = x.replace('#39;', "'").replace('amp;', '&').replace('#146;', "'").replace(
             'nbsp;', ' ').replace('#36;', '$').replace('\\n', "\n").replace('quot;', "'").replace(
-            '<br />', "\n").replace('\\"', '"').replace('<unk>','u_n').replace(' @.@ ','.').replace(
-            ' @-@ ','-').replace('\\', ' \\ ')
+            '<br />', "\n").replace('\\"', '"').replace('<unk>', 'u_n').replace(' @.@ ', '.').replace(
+            ' @-@ ', '-').replace('\\', ' \\ ')
         return self.re_spaces.sub(' ', html.unescape(x))
 
     @staticmethod
@@ -64,7 +68,7 @@ class Tokenizer():
         TOK_UP = ' t_up '
         res = []
         for s in re.findall(r'\w+|\W+', ss):
-            res += ([TOK_UP,s.lower()] if (s.isupper() and (len(s)>2)) else [s.lower()])
+            res += ([TOK_UP, s.lower()] if (s.isupper() and (len(s) > 2)) else [s.lower()])
         return ''.join(res)
 
     def proc_text(self, s):
@@ -88,7 +92,7 @@ class Tokenizer():
 
 
 ###################################################################################
-##  Classiffication
+#  Classiffication
 ###################################################################################
 
 
@@ -109,7 +113,6 @@ class TextDataset(torch.utils.data.Dataset):
                 data = pickle.load(f)
                 self.texts, self.labels = zip(*data)
             print('Loaded dataset of length:', len(self.texts))
-            print(collections.Counter(self.labels))
             return
 
         random.seed(seed)
@@ -132,8 +135,21 @@ class TextDataset(torch.utils.data.Dataset):
         stoi = collections.defaultdict(lambda: 0, {v: k for k, v in enumerate(itos)})
         # filter out unsup
         print('Deleting unsup labels')
-        train_data = [(list(map(lambda t: stoi[t], text)), label) for text, label in zip(train_texts, train_labels) if label != 2]
-        valid_data = [(list(map(lambda t: stoi[t], text)), label) for text, label in zip(valid_texts, valid_labels) if label != 2]
+        train_data = []
+        for text, label in zip(train_texts, train_labels):
+            if label != 2:
+                train_data.append((list(map(lambda t: stoi[t], text)), label))
+
+        valid_data = []
+        for text, label in zip(valid_texts, valid_labels):
+            if label != 2:
+                valid_data.append((list(map(lambda t: stoi[t], text)), label))
+
+        # train_data = [(list(map(lambda t: stoi[t], text)), label)
+        #               for text, label in zip(train_texts, train_labels) if label != 2]
+        # valid_data = [(list(map(lambda t: stoi[t], text)), label)
+        #               for text, label in zip(valid_texts, valid_labels) if label != 2]
+
         self.texts, self.labels = map(list, zip(*train_data)) if train else map(list, zip(*valid_data))
 
         dataset_path = save_path/'dataset'
@@ -146,7 +162,6 @@ class TextDataset(torch.utils.data.Dataset):
             pickle.dump(valid_data, f)
         with open(dataset_path/'itos.pkl', 'wb') as f:
             pickle.dump(itos, f)
-
 
     def _generate_itos(self, texts):
         # get all texts in one list
@@ -176,7 +191,6 @@ class TextDataset(torch.utils.data.Dataset):
 
     def _get_texts(self, path):
         texts, labels = [], []
-        # traverse directory & read all files
         for i, cl in enumerate(self.classes):
             for fname in (path/cl).glob('*.txt'):
                 texts.append(fname.open('r').read())
@@ -195,7 +209,7 @@ class TextDataset(torch.utils.data.Dataset):
 
 
 class TextSampler(torch.utils.data.Sampler):
-    """Sampler for sequence data. Samples by sequence length, so that batches 
+    """Sampler for sequence data. Samples by sequence length, so that batches
     have roughly same length sequences."""
 
     def __init__(self, data_source, key, batch_size):
@@ -212,27 +226,27 @@ class TextSampler(torch.utils.data.Sampler):
         chunk_size = self.batch_size * 50
         chunk_idxs = [idxs[i:i+chunk_size] for i in range(0, len(idxs), chunk_size)]
         idxs = np.concatenate([sorted(ck, key=self.key, reverse=True) for ck in chunk_idxs])
-        
+
         # sort smaller chunks by size
         chunk_size = self.batch_size
         chunk_idxs = [idxs[i:i+chunk_size] for i in range(0, len(idxs), chunk_size)]
         # move chunk with longest key to the beggining
         max_chunk = np.argmax([self.key(ck[0]) for ck in chunk_idxs])
         chunk_idxs[0], chunk_idxs[max_chunk] = chunk_idxs[max_chunk], chunk_idxs[0]
-        
+
         # get final order of elements
         idxs = np.concatenate(np.random.permutation(chunk_idxs[1:]))
         idxs = np.concatenate((chunk_idxs[0], idxs))
         return iter(idxs)
 
 
-class PadCollate: # TODO more general implementation
+class PadCollate:
     """
     a variant of callate_fn that pads according to the longest sequence in
-    a batch of sequences given as numpy arrays. 
+    a batch of sequences given as numpy arrays.
 
     Note:
-        Should only be used with data of form [(seq, target)], 
+        Should only be used with data of form [(seq, target)],
         where seq is one dimentional array.
 
     Example:
@@ -272,18 +286,17 @@ class PadCollate: # TODO more general implementation
         return self.pad_collate(batch)
 
 
-
-
 ###################################################################################
-##  Training models
+#  Training models
 ###################################################################################
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+
 class RunningAverage():
     """A simple class that maintains the running average of a quantity
-    
+
     Example:
     ```
     loss_avg = RunningAverage()
@@ -295,7 +308,7 @@ class RunningAverage():
     def __init__(self):
         self.steps = 0
         self.total = 0
-    
+
     def __call__(self):
         return self.total / float(self.steps)
 
@@ -303,24 +316,26 @@ class RunningAverage():
         self.total += val
         self.steps += 1
 
-
-
-
 ###################################################################################
-##  Language modeling
+#  Serialization of models and configs
 ###################################################################################
 
-def batchify(data, bsz):
-    # Work out how cleanly we can divide the dataset into bsz parts.
-    nbatch = data.size(0) // bsz
-    # Trim off any extra elements that wouldn't cleanly fit (remainders).
-    data = data.narrow(0, 0, nbatch * bsz)
-    # Evenly divide the data across the bsz batches.
-    data = data.view(bsz, -1).t().contiguous()
-    return data.to(device)
 
-def get_batch(source, i):
-    seq_len = min(args.bptt, len(source) - 1 - i)
-    data = source[i:i+seq_len]
-    target = source[i+1:i+1+seq_len].view(-1)
-    return data, target
+def save_encoder(model):
+    pass
+
+
+def load_encoder(model):
+    """
+    Used to load
+    """
+    pass
+
+
+def parse_config(path):
+    if isinstance(path, str):
+        path = Path(path)
+    assert path.exists()
+
+    yaml = YAML()
+    return yaml.load(path)
