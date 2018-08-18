@@ -1,0 +1,28 @@
+0.encoder.weight:
+  start_epoch: 2
+  end_epoch: 7
+  ramp_epoch: 4
+  freq: 100
+  q: 0.082
+  ramp_slope_mult: 2
+0.rnn.weight_ih_l0:
+  start_epoch: 2
+  end_epoch: 7
+  ramp_epoch: 4
+  freq: 100
+  q: 0.1
+  ramp_slope_mult: 2
+0.rnn.weight_hh_l0:
+  start_epoch: 2
+  end_epoch: 7
+  ramp_epoch: 4
+  freq: 100
+  q: 0.079
+  ramp_slope_mult: 2
+1.decoder.weight:
+  start_epoch: 2
+  end_epoch: 6
+  ramp_epoch: 4
+  freq: 100
+  q: 0.117
+  ramp_slope_mult: 2

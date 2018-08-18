@@ -1,6 +1,7 @@
 # My ignore
 data/aclImdb*
 data/models/
+data/dataset
 lab/imdb.npz
 .vscode
 data/*.txt

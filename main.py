@@ -5,6 +5,7 @@ import time
 import torch
 import torch.nn as nn
 import torch.utils.data as data
+import numpy as np
 from tqdm import tqdm
 
 import model
@@ -78,7 +79,7 @@ md = nn.Sequential(
 
 if args.prune:
     config = utils.parse_config(args.config)
-    pruner = ModelPruner(md, config)
+    pruner = ModelPruner(md, len(train_dl), config)
 
 print(f'Created model with {utils.count_parameters(md)} parameters:')
 print(md)
@@ -125,6 +126,11 @@ def train():
     md.train()
     avg_loss = RunningAverage()
     avg_acc = RunningAverage()
+    sparsity = 0.0
+    info = {
+        'loss': None,
+        'acc': None
+    }
 
     pbar = tqdm(train_dl, ascii=True, leave=False)
     for batch in pbar:
@@ -146,10 +152,15 @@ def train():
         pred = out.view(-1) > 0.5
         correct = pred == target.byte()
         avg_acc.update(torch.sum(correct).item() / len(correct))
+        info['loss'] = f'{avg_loss():05.3f}'
+        info['acc'] = f'{avg_acc():05.2f}'
+        if args.prune and pruner.itr % 100 == 0:
+            sparsity = pruner.log()
+            info['spar'] = f'{sparsity:.2f}'
 
-        pbar.set_postfix(loss=f'{avg_loss():05.3f}', acc=f'{avg_acc():05.2f}')
+        pbar.set_postfix(**info)
 
-    return avg_loss(), avg_acc()
+    return avg_loss(), avg_acc(), sparsity
 
 
 ###############################################################################
@@ -163,11 +174,12 @@ best_val_loss = None
 
 for epoch in range(1, args.epochs+1):
     epoch_start_time = time.time()
-    trn_loss, trn_acc = train()
+    trn_loss, trn_acc, sparsity = train()
     val_loss, val_acc = evaluate()
     print('-' * 100)
     print(f'| end of epoch {epoch:3d} | time: {time.time()-epoch_start_time:5.2f}s '
-          f'| train/valid loss {trn_loss:05.3f}/{val_loss:05.3f} | train/valid acc {trn_acc:04.2f}/{val_acc:04.2f}')
+          f'| train/valid loss {trn_loss:05.3f}/{val_loss:05.3f} | train/valid acc {trn_acc:04.2f}/{val_acc:04.2f}'
+          f'| sparsity {sparsity:.2f}')
     print('-' * 100)
     # Save the model if the validation loss is the best we've seen so far.
     if not best_val_loss or val_loss < best_val_loss:
@@ -180,8 +192,9 @@ for epoch in range(1, args.epochs+1):
 
 
 if args.collectq:
+    md = torch.load(args.save)
     with open('q_value', 'w') as fd:
         for name, param in md.named_parameters():
-            sorted_weights, _ = torch.sort(param.view(-1), descending=True)
-            q = abs(sorted_weights[int(sorted_weights.numel() * 0.9)].item())
+            weights = param.data.view(-1).cpu().numpy()
+            q = np.percentile(weights, 90)
             fd.write(f'{name:20}|  q={q}\n')

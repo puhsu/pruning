@@ -4,17 +4,18 @@ import torch
 
 
 class ModelPruner:
-    def __init__(self, model, config):
+    def __init__(self, model, batch_per_epoch, config):
         """
         Initialize model pruner.
         """
         self.weights_count = utils.count_parameters(model)
+        self.itr = 1
         self.pruners = []
         for name, weight in model.named_parameters():
             if 'bias' not in name:
-                self.pruners.append(WeightPruner(weight, config[name]))
+                self.pruners.append(WeightPruner(weight, batch_per_epoch, config[name]))
 
-    def step(self, current_itr):
+    def step(self):
         """
         Used after each training step. Applies mask to every weight
         Also updates mask at regular intervals with self.freq frequency
@@ -22,7 +23,8 @@ class ModelPruner:
         """
         for pruner in self.pruners:
             pruner.apply_mask()
-            pruner.update_mask(current_itr)
+            pruner.update_mask(self.itr)
+        self.itr += 1
 
     def log(self):
         """
@@ -33,12 +35,12 @@ class ModelPruner:
 
 
 class WeightPruner:
-    def __init__(self, weight, config):
+    def __init__(self, weight, batch_per_epoch, config):
         self.mask = torch.ones_like(weight, requires_grad=False)
         self.weight = weight
-        start_itr = config['start_itr']
-        ramp_itr = config['ramp_itr']
-        end_itr = config['end_itr']
+        start_itr = (config['start_epoch'] - 1) * batch_per_epoch
+        ramp_itr = (config['ramp_epoch'] - 1) * batch_per_epoch
+        end_itr = (config['end_epoch'] - 1) * batch_per_epoch
         freq = config['freq']
         q = config['q']
 
@@ -54,11 +56,12 @@ class WeightPruner:
     def update_mask(self, current_itr):
         if current_itr > self.start_itr and current_itr < self.end_itr:
             if current_itr % self.freq == 0:
-                th = self.start_slope * (current_itr - self.start_itr + 1) / self.freq
-            else:
-                th = (self.start_slope * (self.ramp_itr - self.start_itr + 1) +
-                      self.ramp_slope * (current_itr - self.ramp_itr + 1)) / self.freq
-            self.mask = torch.gt(torch.abs(self.weight.data), th).type(self.weight.type())
+                if current_itr < self.ramp_itr:
+                    th = self.start_slope * (current_itr - self.start_itr + 1) / self.freq
+                else:
+                    th = (self.start_slope * (self.ramp_itr - self.start_itr + 1) +
+                          self.ramp_slope * (current_itr - self.ramp_itr + 1)) / self.freq
+                self.mask = torch.gt(torch.abs(self.weight.data), th).type(self.weight.type())
 
     def apply_mask(self):
         self.weight.data = self.weight.data * self.mask
