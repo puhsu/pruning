@@ -182,7 +182,7 @@ for epoch in range(1, args.epochs+1):
     print(f'| end of epoch {epoch:3d} | time: {time.time()-epoch_start_time:5.2f}s '
           f'| train/valid loss {trn_loss:05.3f}/{val_loss:05.3f} | train/valid acc {trn_acc:04.2f}/{val_acc:04.2f} '
           f'| sparsity {sparsity:.2f}')
-    print('-' * 100)
+    print('-' * 111)
     # Save the model if the validation loss is the best we've seen so far.
     if not best_val_loss or val_loss < best_val_loss:
         with open(args.save, 'wb') as f:
