@@ -42,7 +42,7 @@ parser.add_argument('--collectq', action='store_true',
                     help='output weights 90 percentile for pruning')
 parser.add_argument('--prune', action='store_true',
                     help='use pruning while training')
-parser.add_argument('--config', type=str, default='pruning.yaml',
+parser.add_argument('--config', type=str, default='configs/base.yaml',
                     help='model configuration file')
 
 args = parser.parse_args()
