@@ -1,6 +1,6 @@
-import utils
-
 import torch
+
+import utils
 
 
 class ModelPruner:

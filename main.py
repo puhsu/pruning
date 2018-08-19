@@ -1,6 +1,8 @@
+#!/usr/bin/env python3
 import argparse
 import pickle
 import time
+from collections import OrderedDict
 
 import torch
 import torch.nn as nn
@@ -14,9 +16,9 @@ from utils import PadCollate, RunningAverage, TextDataset, TextSampler
 from pruner import ModelPruner
 
 
-parser = argparse.ArgumentParser(description='PyTorch IMDB LSTM classifier')
+parser = argparse.ArgumentParser(description='PyTorch IMDB LSTM classifier with pruning')
 
-parser.add_argument('--load', action='store_true',
+parser.add_argument('--load_ds', action='store_true',
                     help='Load dataset from disk')
 parser.add_argument('--emsize', type=int, default=300,
                     help='size of word embeddings')
@@ -40,7 +42,7 @@ parser.add_argument('--collectq', action='store_true',
                     help='output weights 90 percentile for pruning')
 parser.add_argument('--prune', action='store_true',
                     help='use pruning while training')
-parser.add_argument('--config', type=str, default='data/config.yaml',
+parser.add_argument('--config', type=str, default='pruning.yaml',
                     help='model configuration file')
 
 args = parser.parse_args()
@@ -52,9 +54,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 ###############################################################################
 
 
-train_ds = TextDataset(load=args.load, train=True)
+train_ds = TextDataset(load=args.load_ds, train=True)
 test_ds = TextDataset(load=True, train=False)
-
 
 train_sp = TextSampler(train_ds, key=lambda i: len(train_ds.texts[i]), batch_size=args.batch_size)
 train_dl = data.DataLoader(train_ds, batch_size=args.batch_size, sampler=train_sp, collate_fn=PadCollate())
@@ -72,10 +73,10 @@ print('Loaded train and test data.')
 
 
 ntokens = len(itos)
-md = nn.Sequential(
-    model.ClassifierRNN(args.bptt, ntokens, args.emsize, args.nhid),
-    model.LinearDecoder(args.nhid, 1)
-).to(device)
+md = nn.Sequential(OrderedDict([
+    ('encoder', model.ClassifierRNN(args.bptt, ntokens, args.emsize, args.nhid)),
+    ('decoder', model.LinearDecoder(args.nhid, 1))
+])).to(device)
 
 if args.prune:
     config = utils.parse_config(args.config)
