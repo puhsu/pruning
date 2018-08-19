@@ -15,14 +15,14 @@ encoder.rnn.weight_ih_l0:
 encoder.rnn.weight_hh_l0:
   start_epoch: 1
   end_epoch: 8
-  ramp_epoch: 2
+  ramp_epoch: 3
   freq: 100
   q: 0.079
   ramp_slope_mult: 2
 decoder.lin.weight:
   start_epoch: 2
   end_epoch: 9
-  ramp_epoch: 2
+  ramp_epoch: 3
   freq: 100
   q: 0.117
   ramp_slope_mult: 2

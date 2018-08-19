@@ -5,7 +5,7 @@ Elisp function (macro) used to parse output line to org table:
 (fset 'parse-line
    (lambda (&optional arg) "Keyboard macro." (interactive "p") (kmacro-exec-ring-item (quote ([33554437 8388707 134217790 8388726 1 134217830 134217830 134217830 M-backspace M-backspace M-backspace 134217830 134217830 M-backspace 4 134217830 134217830 backspace 134217830 134217830 134217830 M-backspace M-backspace M-backspace 134217830 134217830 4 32 124 32 134217830 134217830 134217830 134217830 134217830 M-backspace M-backspace M-backspace 134217830 134217830 4 32 124 32 134217830 134217830 134217830 M-backspace 5 32 124] 0 "%d")) arg)))
 #+END_SRC
-* [[file:configs/higher_q.yaml][config]] <2018-08-19 Sun>
+* [[file:configs/higher_q.yaml][Config]]
 Pruning with higher frequency. Also increased q for rnn hidden to hidden.
 Forgot to fix hig `ramp_mulp` for decoder linear layer (left at 20). That
 explains big sparsity increase and accuracy drop
@@ -22,7 +22,9 @@ explains big sparsity increase and accuracy drop
 |     8 |    92.52 |     28.391 |    24.296 |      0.72 |     0.83 |     0.95 |
 |     9 |    91.75 |     28.791 |    22.464 |      0.71 |     0.87 |     0.95 |
 |    10 |    91.74 |     28.455 |    22.434 |      0.71 |     0.86 |     0.95 |
-* [[file:configs/high_ramp.yaml][config]] <2018-08-19 Sun>
+|-------+----------+------------+-----------+-----------+----------+----------|
+
+* [[file:configs/high_ramp.yaml][Config]]
 Pruning with high ramp_mult (20). All weights are pruned at the end of third
 epoch
 
@@ -33,4 +35,5 @@ epoch
 |     3 |    95.56 |     36.676 |    44.136 |      0.66 |     0.50 |     1.00 |
 |     4 |    87.66 |     44.078 |    43.975 |      0.50 |     0.50 |     1.00 |
 |     5 |    91.71 |     44.293 |    44.319 |      0.50 |     0.50 |     1.00 |
+|-------+----------+------------+-----------+-----------+----------+----------|
 

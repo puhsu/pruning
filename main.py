@@ -81,6 +81,7 @@ md = nn.Sequential(OrderedDict([
 if args.prune:
     config = utils.parse_config(args.config)
     pruner = ModelPruner(md, len(train_dl), config)
+    md.encoder.rnn.flatten_parameters()
 
 print(f'Created model with {utils.count_parameters(md)} parameters:')
 print(md)
