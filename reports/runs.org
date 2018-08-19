@@ -1,0 +1,29 @@
+#+title: Training information
+* Other
+Elisp function (macro) used to parse output line to org table:
+#+BEGIN_SRC emacs-lisp
+(fset 'parse-line
+   (lambda (&optional arg) "Keyboard macro." (interactive "p") (kmacro-exec-ring-item (quote ([33554437 8388707 134217790 8388726 1 134217830 134217830 134217830 M-backspace M-backspace M-backspace 134217830 134217830 M-backspace 4 134217830 134217830 backspace 134217830 134217830 134217830 M-backspace M-backspace M-backspace 134217830 134217830 4 32 124 32 134217830 134217830 134217830 134217830 134217830 M-backspace M-backspace M-backspace 134217830 134217830 4 32 124 32 134217830 134217830 134217830 M-backspace 5 32 124] 0 "%d")) arg)))
+#+END_SRC
+* Pruning with higher frequency. Also increased q for rnn hidden to hidden
+| Epoch | Time (s) | Train Loss | Test Loss | Train Acc | Test Acc | Sparsity |
+|-------+----------+------------+-----------+-----------+----------+----------|
+|     1 |    91.29 |     35.474 |    24.720 |      0.69 |     0.82 |        0 |
+|     2 |    95.86 |     24.140 |    22.266 |      0.84 |     0.87 |     0.08 |
+|     3 |    92.48 |     22.886 |    22.016 |      0.86 |     0.87 |     0.25 |
+|     4 |    97.59 |     23.263 |    21.766 |      0.85 |     0.87 |     0.45 |
+|     5 |    94.40 |     22.750 |    23.796 |      0.84 |     0.84 |     0.64 |
+|     6 |    88.32 |     24.285 |    26.892 |      0.80 |     0.84 |     0.82 |
+|     7 |    94.20 |     29.653 |    25.829 |      0.71 |     0.85 |     0.95 |
+|     8 |    92.52 |     28.391 |    24.296 |      0.72 |     0.83 |     0.95 |
+|     9 |    91.75 |     28.791 |    22.464 |      0.71 |     0.87 |     0.95 |
+|    10 |    91.74 |     28.455 |    22.434 |      0.71 |     0.86 |     0.95 |
+* Pruning with high ramp_mult (20). All weights are pruned at the end of 3d epoch
+| Epoch | Time (s) | Train Loss | Test Loss | Train Acc | Test Acc | Sparsity |
+|-------+----------+------------+-----------+-----------+----------+----------|
+|     1 |    91.27 |     35.411 |    23.284 |      0.69 |     0.84 |     0.04 |
+|     2 |    96.94 |     26.752 |    29.410 |      0.79 |     0.80 |     0.74 |
+|     3 |    95.56 |     36.676 |    44.136 |      0.66 |     0.50 |     1.00 |
+|     4 |    87.66 |     44.078 |    43.975 |      0.50 |     0.50 |     1.00 |
+|     5 |    91.71 |     44.293 |    44.319 |      0.50 |     0.50 |     1.00 |
+

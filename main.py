@@ -155,7 +155,7 @@ def train():
         avg_acc.update(torch.sum(correct).item() / len(correct))
         info['loss'] = f'{avg_loss():05.3f}'
         info['acc'] = f'{avg_acc():05.2f}'
-        if args.prune and pruner.itr % 100 == 0:
+        if args.prune:
             sparsity = pruner.log()
             info['spar'] = f'{sparsity:.2f}'
 
@@ -177,9 +177,9 @@ for epoch in range(1, args.epochs+1):
     epoch_start_time = time.time()
     trn_loss, trn_acc, sparsity = train()
     val_loss, val_acc = evaluate()
-    print('-' * 100)
+    print('-' * 111)
     print(f'| end of epoch {epoch:3d} | time: {time.time()-epoch_start_time:5.2f}s '
-          f'| train/valid loss {trn_loss:05.3f}/{val_loss:05.3f} | train/valid acc {trn_acc:04.2f}/{val_acc:04.2f}'
+          f'| train/valid loss {trn_loss:05.3f}/{val_loss:05.3f} | train/valid acc {trn_acc:04.2f}/{val_acc:04.2f} '
           f'| sparsity {sparsity:.2f}')
     print('-' * 100)
     # Save the model if the validation loss is the best we've seen so far.
