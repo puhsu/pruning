@@ -65,7 +65,7 @@ To parse output paste it in this cell
 ---------------------------------------------------------------------------------------------------------------
 #+END_EXAMPLE
 
-After that run block with `org-babel-execute-src-block`
+After that run block with =org-babel-execute-src-block=
 #+BEGIN_SRC python :var s=learn_output
 from parse import parse
 in_fmt = '| end of epoch {:3d} | time: {:5.2f}s ' \
@@ -82,7 +82,7 @@ for line in list(lines):
 return res
 #+END_SRC
 
-Paste this to the file and press `TAB` to allign
+Paste this to the file and press =TAB= to allign
 #+RESULTS:
 #+begin_example
 | Epoch | Time (s) | Train Loss | Test Loss | Train Acc | Test Acc | Sparsity |
