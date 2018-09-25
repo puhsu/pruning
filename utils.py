@@ -86,7 +86,7 @@ class Tokenizer():
         return [tok.proc_text(s) for s in ss]
 
     @staticmethod
-    def proc_all_mp(ss, lang='en'):
+    def proc_all_mp(ss, lang='en_core_web_sm'):
         with ProcessPoolExecutor(os.cpu_count()) as e:
             return sum(e.map(Tokenizer.proc_all, ss, [lang]*len(ss)), [])
 
