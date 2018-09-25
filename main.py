@@ -26,6 +26,8 @@ parser.add_argument('--nhid', type=int, default=128,
                     help='number of hidden units per layer')
 parser.add_argument('--lr', type=float, default=1e-3,
                     help='initial learning rate')
+parser.add_argument('--l2alpha', type=float, default=0,
+                    help='weights l2 regularization term coefficient')
 parser.add_argument('--clip', type=float, default=0.25,
                     help='gradient clipping')
 parser.add_argument('--epochs', type=int, default=5,
@@ -87,7 +89,12 @@ print(f'Created model with {utils.count_parameters(md)} parameters:')
 print(md)
 
 criterion = nn.BCEWithLogitsLoss(reduction='sum')
-optimizer = torch.optim.Adam(md.parameters(), lr=args.lr, betas=(0.8, 0.99))
+optimizer = torch.optim.Adam(
+    md.parameters(), 
+    lr=args.lr, 
+    weight_decay=args.l2alpha,
+    betas=(0.8, 0.99),
+)
 
 ###############################################################################
 # Training code
