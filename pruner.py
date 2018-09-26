@@ -35,7 +35,7 @@ class ModelPruner:
         count_pruned = sum(pruner.get_pruned_count() for pruner in self.pruners)
         return count_pruned / self.weights_count
 
-    def save_graph_data(self, path):
+    def save_plot_data(self, path):
         from pathlib import Path
 
         for pruner in self.pruners:
