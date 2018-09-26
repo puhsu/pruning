@@ -40,7 +40,7 @@ class ModelPruner:
 
         for pruner in self.pruners:
             folder = path/pruner.name
-            folder.mkdir(parents=True, exists_ok=True)
+            folder.mkdir(parents=True, exist_ok=True)
             with open(folder/'itr.pkl', 'wb'), open(folder/'sparsity.pkl'), open(folder/'count.pkl') as i, s, c:
                 pickle.dump(pruner.itr, i)
                 pickle.dump(pruner.sparsity, s)
