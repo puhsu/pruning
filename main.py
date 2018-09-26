@@ -200,7 +200,7 @@ for epoch in range(1, args.epochs+1):
         # Anneal the learning rate if no improvement has been seen in the validation dataset.
         lr /= 4.0
 
-if args.pruning:
+if args.prune:
     pruner.save_plot_data(Path('data/pruning'))
 
 if args.collectq:
