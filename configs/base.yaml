@@ -3,7 +3,7 @@ encoder.emb.weight:
   end_epoch: 8
   ramp_epoch: 3
   freq: 100
-  q: 0.082
+  q: 0.081
   ramp_slope_mult: 2
 encoder.rnn.weight_ih_l0:
   start_epoch: 2
@@ -13,11 +13,11 @@ encoder.rnn.weight_ih_l0:
   q: 0.1
   ramp_slope_mult: 2
 encoder.rnn.weight_hh_l0:
-  start_epoch: 1
+  start_epoch: 2
   end_epoch: 8
   ramp_epoch: 3
   freq: 100
-  q: 0.079
+  q: 0.074
   ramp_slope_mult: 2
 decoder.lin.weight:
   start_epoch: 2
