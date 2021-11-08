@@ -28,7 +28,7 @@ def partition_by_cores(a):
 # TODO refactor tokenizer (too many fixup, sub... functions which logically do same things)
 # NOTE Maybe make this a function
 class Tokenizer():
-    def __init__(self, lang='en'):
+    def __init__(self, lang='en_core_web_sm'):
         self.re_br = re.compile(r'<\s*br\s*/?>', re.IGNORECASE)
         self.re_rep = re.compile(r'(\S)(\1{3,})')
         self.re_word_rep = re.compile(r'(\b\w+\W+)(\1{3,})')
@@ -86,7 +86,7 @@ class Tokenizer():
         return [tok.proc_text(s) for s in ss]
 
     @staticmethod
-    def proc_all_mp(ss, lang='en'):
+    def proc_all_mp(ss, lang='en_core_web_sm'):
         with ProcessPoolExecutor(os.cpu_count()) as e:
             return sum(e.map(Tokenizer.proc_all, ss, [lang]*len(ss)), [])
 

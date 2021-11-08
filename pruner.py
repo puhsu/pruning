@@ -1,3 +1,5 @@
+import pickle
+
 import torch
 
 import utils
@@ -13,7 +15,7 @@ class ModelPruner:
         self.pruners = []
         for name, weight in model.named_parameters():
             if 'bias' not in name:
-                self.pruners.append(WeightPruner(weight, batch_per_epoch, config[name]))
+                self.pruners.append(WeightPruner(name, weight, batch_per_epoch, config[name]))
 
     def step(self):
         """
@@ -33,9 +35,24 @@ class ModelPruner:
         count_pruned = sum(pruner.get_pruned_count() for pruner in self.pruners)
         return count_pruned / self.weights_count
 
+    def save_plot_data(self, path):
+        from pathlib import Path
+
+        for pruner in self.pruners:
+            folder = path/pruner.name
+            folder.mkdir(parents=True, exist_ok=True)
+            with open(folder/'itr.pkl', 'wb') as i, \
+                 open(folder/'sparsity.pkl', 'wb') as s, \
+                 open(folder/'count.pkl', 'wb') as c:
+                pickle.dump(pruner.itr, i)
+                pickle.dump(pruner.sparsity, s)
+                pickle.dump(pruner.pruned_count, c)
+            
+
 
 class WeightPruner:
-    def __init__(self, weight, batch_per_epoch, config):
+    def __init__(self, name, weight, batch_per_epoch, config):
+        self.name = name
         self.mask = torch.ones_like(weight, requires_grad=False)
         self.weight = weight
         start_itr = (config['start_epoch'] - 1) * batch_per_epoch
@@ -53,7 +70,16 @@ class WeightPruner:
         self.end_itr = end_itr
         self.freq = freq
 
+        self.itr = []
+        self.sparsity = []
+        self.pruned_count = []
+
     def update_mask(self, current_itr):
+        # update stats
+        self.itr.append(current_itr)
+        self.sparsity.append(self.get_sparsity())
+        self.pruned_count.append(self.get_pruned_count())
+
         if current_itr > self.start_itr and current_itr < self.end_itr:
             if current_itr % self.freq == 0:
                 if current_itr < self.ramp_itr:
